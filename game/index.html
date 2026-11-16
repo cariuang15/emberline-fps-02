@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Emberline — Kestrel Yard | three.js tactical FPS</title>
+<!--
+  Emberline — Kestrel Yard: a round-based tactical FPS in the style
+  Counter-Strike made famous, built original from the ground up.
+  4v4, first to 5 rounds. Vanguard attack with a spike; Sentinel defend
+  two sites, Foundry (A) and Silo (B), across a three-lane container yard.
+  Buy weapons between rounds, plant or defuse, and mind the crossfire.
+  Everything runs from these static files: three.js 0.187.0 vendored,
+  no network request, no build step.
+-->
+<style>
+  :root { --teal: #2ec4b6; --orange: #e4572e; --gold: #e8b13c; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #10151d; }
+  body { font-family: Arial, Helvetica, sans-serif; color: #e8ecf0; }
+  #game { display: block; width: 100%; height: 100%; }
+  #hud { position: fixed; inset: 0; pointer-events: none; z-index: 5; }
+  #hud button { pointer-events: auto; }
+
+  .crosshair { position: absolute; left: 50%; top: 50%; width: 0; height: 0; --gap: 6px; }
+  .ch-line { position: absolute; background: rgba(255,255,255,.92); box-shadow: 0 0 2px #000; }
+  .ch-line.top { left: -1px; top: calc(-1 * var(--gap) - 9px); width: 2px; height: 9px; }
+  .ch-line.bottom { left: -1px; top: var(--gap); width: 2px; height: 9px; }
+  .ch-line.left { top: -1px; left: calc(-1 * var(--gap) - 9px); height: 2px; width: 9px; }
+  .ch-line.right { top: -1px; left: var(--gap); height: 2px; width: 9px; }
+  .ch-dot { position: absolute; left: -1.5px; top: -1.5px; width: 3px; height: 3px; background: #fff; border-radius: 50%; }
+  .hitmarker { position: absolute; left: 50%; top: 50%; width: 0; height: 0; opacity: 0; }
+  .hitmarker.show { opacity: 1; }
+  .hm-line { position: absolute; width: 11px; height: 2px; background: #fff; }
+  .hm0 { transform: translate(-14px,-11px) rotate(45deg); }
+  .hm1 { transform: translate(3px,-11px) rotate(-45deg); }
+  .hm2 { transform: translate(-14px,9px) rotate(-45deg); }
+  .hm3 { transform: translate(3px,9px) rotate(45deg); }
+  .hitmarker.kill .hm-line { background: #ff5340; height: 3px; }
+
+  .topbar { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); text-align: center; }
+  .timer { font-size: 30px; font-weight: bold; letter-spacing: 2px; text-shadow: 0 2px 4px #000; }
+  .timer.urgent { color: #ff5340; }
+  .round { font-size: 12px; letter-spacing: 3px; color: #b9c2cc; text-shadow: 0 1px 3px #000; }
+  .score { font-size: 20px; font-weight: bold; margin-top: 2px; text-shadow: 0 2px 4px #000; }
+  .score::before { content: "VANGUARD "; color: var(--teal); font-size: 12px; }
+  .score::after { content: " SENTINEL"; color: var(--orange); font-size: 12px; }
+  .spike-status { margin-top: 6px; font-size: 13px; font-weight: bold; color: var(--gold); text-shadow: 0 1px 3px #000; }
+
+  .killfeed { position: absolute; top: 14px; right: 16px; text-align: right; font-size: 13px; }
+  .feed-line { background: rgba(10,14,20,.72); padding: 4px 8px; margin-bottom: 4px; border-radius: 3px; }
+  .feed-kill { border-right: 3px solid #ff5340; }
+  .feed-plant { border-right: 3px solid var(--gold); color: var(--gold); }
+  .feed-defuse { border-right: 3px solid var(--teal); color: #7fe7dc; }
+  .feed-explode { border-right: 3px solid #ff7a20; color: #ffb199; }
+  .feed-round { border-right: 3px solid #fff; font-weight: bold; }
+
+  .banner { position: absolute; top: 22%; left: 0; right: 0; text-align: center; display: none; }
+  .banner-title { font-size: 44px; font-weight: bold; letter-spacing: 5px; text-shadow: 0 3px 10px #000; }
+  .banner-sub { font-size: 15px; color: #cfd6de; margin-top: 6px; text-shadow: 0 2px 4px #000; }
+
+  .objective { position: absolute; left: 50%; top: 58%; transform: translateX(-50%); width: 300px; display: none; text-align: center; }
+  .objective-label { font-size: 13px; font-weight: bold; letter-spacing: 2px; margin-bottom: 6px; text-shadow: 0 1px 3px #000; }
+  .objective-bar { height: 10px; background: rgba(0,0,0,.6); border: 1px solid #888; border-radius: 5px; overflow: hidden; }
+  .objective-fill { height: 100%; width: 0; background: var(--gold); }
+
+  .bl { position: absolute; left: 20px; bottom: 18px; }
+  .lbl { font-size: 11px; letter-spacing: 3px; color: #b9c2cc; }
+  .hp-num { font-size: 42px; font-weight: bold; line-height: 1; text-shadow: 0 2px 4px #000; }
+  .hp-bar { width: 190px; height: 8px; background: rgba(0,0,0,.55); border: 1px solid #666; margin-top: 4px; }
+  .hp-fill { height: 100%; width: 100%; background: #58c96b; }
+  .armor { font-size: 13px; color: #8fb7ff; margin-top: 4px; text-shadow: 0 1px 3px #000; }
+  .br { position: absolute; right: 20px; bottom: 18px; text-align: right; }
+  .ammo { font-size: 36px; font-weight: bold; text-shadow: 0 2px 4px #000; }
+  .weapon-name { font-size: 14px; letter-spacing: 2px; color: #cfd6de; }
+  .money { font-size: 22px; font-weight: bold; color: var(--gold); margin-top: 4px; text-shadow: 0 2px 4px #000; }
+  .nades { font-size: 12px; color: #b9c2cc; margin-top: 3px; }
+
+  .msg { position: absolute; left: 50%; bottom: 120px; transform: translateX(-50%); font-size: 14px; background: rgba(10,14,20,.75); padding: 6px 12px; border-radius: 4px; opacity: 0; transition: opacity .4s; white-space: nowrap; }
+  .mute-chip { position: absolute; left: 20px; top: 14px; font-size: 12px; font-weight: bold; color: var(--gold); background: rgba(10,14,20,.7); padding: 4px 8px; border-radius: 3px; }
+
+  .buy-menu { position: absolute; left: 50%; top: 50%; transform: translate(-50%,-50%); width: 380px; background: rgba(8,12,18,.92); border: 1px solid #4a5560; border-radius: 6px; padding: 14px; }
+  .buy-title { font-size: 16px; font-weight: bold; letter-spacing: 2px; margin-bottom: 10px; color: var(--gold); }
+  .buy-row { display: flex; width: 100%; gap: 10px; align-items: center; background: #1a212b; color: #e8ecf0; border: 1px solid #333d49; border-radius: 4px; padding: 9px 10px; margin-bottom: 6px; font-size: 14px; cursor: pointer; text-align: left; }
+  .buy-row:hover { background: #243040; border-color: var(--teal); }
+  .buy-row.cant { opacity: .45; }
+  .buy-key { color: var(--gold); font-weight: bold; width: 26px; }
+  .buy-label { flex: 1; }
+  .buy-price { color: var(--gold); font-weight: bold; }
+
+  .scoreboard { position: absolute; left: 50%; top: 16%; transform: translateX(-50%); width: 460px; background: rgba(8,12,18,.93); border: 1px solid #4a5560; border-radius: 6px; padding: 14px; }
+  .board-title { font-size: 15px; font-weight: bold; letter-spacing: 3px; margin-bottom: 8px; }
+  .board-team { font-size: 12px; letter-spacing: 2px; margin: 8px 0 4px; }
+  .board-team:first-of-type { color: var(--teal); }
+  .board-team:last-of-type { color: var(--orange); }
+  .board-row { display: flex; justify-content: space-between; font-size: 13px; padding: 3px 2px; border-bottom: 1px solid #222b36; }
+
+  .scope { position: absolute; inset: 0; background: radial-gradient(circle at 50% 50%, transparent 0 31%, rgba(0,0,0,.97) 32%); }
+  .scope::after { content: ""; position: absolute; left: 50%; top: 50%; width: 64vmin; height: 64vmin; transform: translate(-50%,-50%); border: 2px solid rgba(0,0,0,.9); border-radius: 50%; box-shadow: 0 0 0 1px rgba(255,255,255,.15); }
+
+  #menu, #end-screen { position: fixed; inset: 0; z-index: 10; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; background: linear-gradient(180deg, rgba(10,16,24,.82), rgba(10,16,24,.94)); }
+  #end-screen { display: none; }
+  .game-title { font-size: 56px; font-weight: bold; letter-spacing: 8px; color: #fff; text-shadow: 0 4px 18px #000; }
+  .game-title span { color: var(--teal); }
+  .game-sub { font-size: 17px; color: #cfd6de; margin-top: 8px; }
+  .game-tag { margin-top: 14px; font-size: 13px; letter-spacing: 2px; color: var(--gold); }
+  .big-btn { pointer-events: auto; margin-top: 28px; font-size: 20px; font-weight: bold; letter-spacing: 3px; color: #08131a; background: var(--teal); border: 0; border-radius: 6px; padding: 14px 44px; cursor: pointer; }
+  .big-btn:hover { background: #4de0d2; }
+  .controls { margin-top: 30px; font-size: 13px; line-height: 1.9; color: #aeb8c2; }
+  .controls b { color: #fff; background: #222b36; border: 1px solid #444; border-radius: 3px; padding: 1px 6px; font-weight: normal; }
+  #end-title { font-size: 52px; font-weight: bold; letter-spacing: 6px; text-shadow: 0 4px 18px #000; }
+  #end-score { font-size: 20px; margin-top: 10px; color: #cfd6de; }
+  .hint { margin-top: 18px; font-size: 12px; color: #7d8894; }
+</style>
+<script type="importmap">
+{ "imports": { "three": "./vendor/three/three.module.min.js" } }
+</script>
+</head>
+<body>
+<canvas id="game"></canvas>
+<div id="hud"></div>
+
+<div id="menu">
+  <div class="game-title">EMBERLINE <span>— KESTREL YARD</span></div>
+  <div class="game-sub">A round-based tactical FPS: 4v4, first to 5 rounds.</div>
+  <div class="game-tag">VANGUARD ATTACKS · SENTINEL DEFENDS · PLANT THE SPIKE AT FOUNDRY (A) OR SILO (B)</div>
+  <button id="btn-play" class="big-btn" type="button">▶ &nbsp;PLAY</button>
+  <div class="controls">
+    <b>W A S D</b> move &nbsp;·&nbsp; <b>Mouse</b> look &nbsp;·&nbsp; <b>Click</b> fire &nbsp;·&nbsp; <b>Right-click</b> aim<br>
+    <b>R</b> reload &nbsp;·&nbsp; <b>E</b> plant / defuse (hold) &nbsp;·&nbsp; <b>B</b> buy menu &nbsp;·&nbsp; <b>G</b> frag &nbsp;·&nbsp; <b>H</b> smoke<br>
+    <b>1 / 2</b> switch weapon &nbsp;·&nbsp; <b>C</b> crouch &nbsp;·&nbsp; <b>Shift</b> walk slow &nbsp;·&nbsp; <b>Tab</b> scoreboard &nbsp;·&nbsp; <b>M</b> mute
+  </div>
+  <div class="hint">Runs entirely from these files — no network, no account, no download.</div>
+</div>
+
+<div id="end-screen">
+  <div id="end-title">VANGUARD WINS</div>
+  <div id="end-score">Final score 5 — 3</div>
+  <button id="btn-again" class="big-btn" type="button">↻ &nbsp;PLAY AGAIN</button>
+</div>
+
+<script type="module" src="./src/main.js"></script>
+</body>
+</html>
